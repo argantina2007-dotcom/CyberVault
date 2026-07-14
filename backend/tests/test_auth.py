@@ -39,6 +39,22 @@ def test_login_updates_last_login(client: tuple[TestClient, sessionmaker]) -> No
         db.close()
 
 
+def test_oauth2_form_login_uses_email_as_username(client: tuple[TestClient, sessionmaker]) -> None:
+    test_client, _ = client
+    register(test_client)
+
+    response = test_client.post(
+        "/api/v1/auth/token",
+        data={"username": "user@example.com", "password": "strong-password"},
+    )
+
+    assert response.status_code == 200
+    tokens = response.json()
+    assert tokens["token_type"] == "bearer"
+    assert tokens["access_token"]
+    assert tokens["refresh_token"]
+
+
 def test_inactive_users_cannot_login_access_or_refresh(
     client: tuple[TestClient, sessionmaker],
 ) -> None:

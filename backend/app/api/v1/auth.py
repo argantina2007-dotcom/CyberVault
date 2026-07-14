@@ -3,6 +3,7 @@ import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -72,6 +73,29 @@ def _revoke_family(db: Session, family_id: str) -> None:
     ).update({RefreshSession.revoked_at: utc_now()}, synchronize_session=False)
 
 
+def _authenticate_and_issue_tokens(db: Session, email: str, password: str) -> TokenResponse:
+    """Validate credentials and create a fresh access/refresh token pair."""
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not user.is_active or not verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    user.last_login = utc_now()
+    try:
+        access_token, refresh_token = _issue_token_pair(db, user)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to create an authentication session",
+        ) from None
+
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
 @router.post("/register", response_model=TokenResponse)
 @limiter.limit(settings.register_rate_limit)
 def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
@@ -105,25 +129,22 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(settings.login_rate_limit)
 def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
-    if not user or not user.is_active or not verify_password(data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+    return _authenticate_and_issue_tokens(db, str(data.email), data.password)
 
-    user.last_login = utc_now()
-    try:
-        access_token, refresh_token = _issue_token_pair(db, user)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Unable to create an authentication session",
-        ) from None
 
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+@router.post("/token", response_model=TokenResponse, include_in_schema=False)
+@limiter.limit(settings.login_rate_limit)
+def oauth2_token(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """OAuth2 password-grant endpoint used by Swagger's Authorize dialog.
+
+    OAuth2 calls the identifier field ``username``; CyberVault treats it as the
+    account email and delegates to the same login workflow as the JSON endpoint.
+    """
+    return _authenticate_and_issue_tokens(db, form_data.username, form_data.password)
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)

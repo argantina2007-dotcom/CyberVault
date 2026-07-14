@@ -5,10 +5,13 @@ from app.models.user import User
 from app.schemas.tools import (
     HashGeneratorRequest,
     HashGeneratorResponse,
+    JwtDecoderRequest,
+    JwtDecoderResponse,
     PasswordGeneratorRequest,
     PasswordGeneratorResponse,
 )
 from app.tools.hash_generator import generate_hash, hash_security_note
+from app.tools.jwt_decoder import parse_unverified_token, verify_token
 from app.tools.password_generator import (
     available_character_sets,
     estimate_entropy,
@@ -82,4 +85,45 @@ def hash_generator(
         input_byte_length=len(options.text.encode("utf-8")),
         output_format="bcrypt modular crypt format" if options.algorithm == "bcrypt" else "lowercase hexadecimal",
         security_note=hash_security_note(options.algorithm),
+    )
+
+
+@router.post(
+    "/jwt-decoder",
+    response_model=JwtDecoderResponse,
+    summary="Decode or verify a JWT",
+    description=(
+        "Decoding alone does not prove authenticity. Verified mode requires a caller-supplied secret "
+        "and explicit algorithm allowlist; the application's own signing key is never used."
+    ),
+)
+def jwt_decoder(
+    options: JwtDecoderRequest,
+    _: User = Depends(get_current_user),
+) -> JwtDecoderResponse:
+    header, unverified_payload, signature_present = parse_unverified_token(options.token)
+    verified = options.verify_signature
+    payload = unverified_payload
+    if verified:
+        payload = verify_token(
+            options.token,
+            options.secret_key.get_secret_value(),
+            options.algorithms,
+        )
+
+    return JwtDecoderResponse(
+        header=header,
+        payload=payload,
+        signature_present=signature_present,
+        verified=verified,
+        algorithm=header.get("alg"),
+        token_type=payload.get("type"),
+        issued_at=payload.get("iat"),
+        expires_at=payload.get("exp"),
+        not_before=payload.get("nbf"),
+        validation_note=(
+            "Signature and registered claims were verified using the caller-supplied key and allowlist."
+            if verified
+            else "Decoded without signature or claim verification. Do not trust these claims as authentic."
+        ),
     )

@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 
 class PasswordGeneratorRequest(BaseModel):
@@ -104,3 +104,76 @@ class HashGeneratorResponse(BaseModel):
     input_byte_length: int = Field(description="UTF-8 byte length of the supplied text.")
     output_format: str
     security_note: str
+
+
+class JwtDecoderRequest(BaseModel):
+    token: str = Field(description="JWT compact serialization. It is not stored or logged.")
+    verify_signature: bool = Field(
+        default=False,
+        description="Verify the signature and registered claims using the supplied key and allowlist.",
+    )
+    secret_key: SecretStr | None = Field(
+        default=None,
+        description="Verification key supplied only for verified decoding; the server signing key is never used.",
+    )
+    algorithms: list[str] | None = Field(
+        default=None,
+        description="Explicit algorithm allowlist required for verified decoding, for example ['HS256'].",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...", "verify_signature": False},
+                {
+                    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "verify_signature": True,
+                    "secret_key": "caller-provided-verification-key",
+                    "algorithms": ["HS256"],
+                },
+            ]
+        }
+    }
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("Token must not be empty")
+        if len(value.encode("utf-8")) > 16 * 1024:
+            raise ValueError("Token must not exceed 16 KB when UTF-8 encoded")
+        return value
+
+    @field_validator("algorithms")
+    @classmethod
+    def validate_algorithms(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        if not all(isinstance(algorithm, str) and algorithm.strip() for algorithm in value):
+            raise ValueError("Algorithms must contain non-empty algorithm names")
+        if any(algorithm.lower() == "none" for algorithm in value):
+            raise ValueError("The 'none' algorithm is not allowed")
+        return value
+
+    @model_validator(mode="after")
+    def validate_verification_options(self) -> "JwtDecoderRequest":
+        if not self.verify_signature:
+            return self
+        if self.secret_key is None or not self.secret_key.get_secret_value():
+            raise ValueError("secret_key is required when verify_signature is true")
+        if not self.algorithms:
+            raise ValueError("A non-empty algorithms allowlist is required when verify_signature is true")
+        return self
+
+
+class JwtDecoderResponse(BaseModel):
+    header: dict[str, Any]
+    payload: dict[str, Any]
+    signature_present: bool
+    verified: bool
+    algorithm: str | None
+    token_type: str | None
+    issued_at: Any | None
+    expires_at: Any | None
+    not_before: Any | None
+    validation_note: str

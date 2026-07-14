@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PasswordGeneratorRequest(BaseModel):
@@ -54,3 +54,53 @@ class PasswordGeneratorResponse(BaseModel):
     enabled_categories: list[str]
     estimated_entropy: float = Field(description="Estimated entropy in bits.")
     strength_rating: Literal["weak", "fair", "strong", "very_strong"]
+
+
+class HashGeneratorRequest(BaseModel):
+    text: str = Field(description="UTF-8 text to hash. It is not stored or logged.")
+    algorithm: Literal["md5", "sha1", "sha256", "sha512", "bcrypt"] = Field(
+        description="Hashing algorithm. MD5 and SHA1 must not be used for password storage."
+    )
+    bcrypt_rounds: int | None = Field(
+        default=None,
+        ge=10,
+        le=14,
+        description="bcrypt work factor. Allowed only when algorithm is bcrypt.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"text": "CyberVault", "algorithm": "sha256"},
+                {"text": "password-to-hash", "algorithm": "bcrypt", "bcrypt_rounds": 12},
+            ]
+        }
+    }
+
+    @field_validator("algorithm", mode="before")
+    @classmethod
+    def normalize_algorithm(cls, value: str) -> str:
+        return value.lower() if isinstance(value, str) else value
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Text must not be empty")
+        if len(value.encode("utf-8")) > 100 * 1024:
+            raise ValueError("Text must not exceed 100 KB when UTF-8 encoded")
+        return value
+
+    @model_validator(mode="after")
+    def validate_bcrypt_options(self) -> "HashGeneratorRequest":
+        if self.algorithm != "bcrypt" and self.bcrypt_rounds is not None:
+            raise ValueError("bcrypt_rounds is allowed only when algorithm is bcrypt")
+        return self
+
+
+class HashGeneratorResponse(BaseModel):
+    algorithm: Literal["md5", "sha1", "sha256", "sha512", "bcrypt"]
+    hash: str = Field(description="Generated digest or bcrypt modular crypt string.")
+    input_byte_length: int = Field(description="UTF-8 byte length of the supplied text.")
+    output_format: str
+    security_note: str

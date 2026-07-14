@@ -1,16 +1,12 @@
-import os
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-load_dotenv()
-
-DATABASE_URL = DATABASE_URL = "mysql+pymysql://root:KXLm7md91596k@localhost:3306/cybervault"
+from app.core.config import settings
 
 Base = declarative_base()
 
 engine = create_engine(
-    DATABASE_URL,
+    settings.database_url,
     pool_pre_ping=True
 )
 

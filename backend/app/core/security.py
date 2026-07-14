@@ -1,15 +1,10 @@
-import os
-from dotenv import load_dotenv
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-load_dotenv()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 15
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -21,22 +16,49 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + timedelta(
+        minutes=settings.access_token_expire_minutes
+    )
     to_encode.update({"exp": expire, "type": "access"})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(
+        to_encode,
+        settings.secret_key.get_secret_value(),
+        algorithm=settings.algorithm,
+    )
 
-def create_refresh_token(data: dict) -> str:
+def create_refresh_token(
+    data: dict,
+    *,
+    token_identifier: str | None = None,
+    family_identifier: str | None = None,
+) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    to_encode.update(
+        {
+            "exp": expire,
+            "type": "refresh",
+            "jti": token_identifier or secrets.token_urlsafe(32),
+            "family": family_identifier or secrets.token_urlsafe(24),
+        }
+    )
+    return jwt.encode(
+        to_encode,
+        settings.secret_key.get_secret_value(),
+        algorithm=settings.algorithm,
+    )
+
+
+def hash_token_identifier(token_identifier: str) -> str:
+    """Return the fixed-length digest stored for a refresh-token identifier."""
+    return hashlib.sha256(token_identifier.encode("utf-8")).hexdigest()
 
 def decode_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(
             token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
+            settings.secret_key.get_secret_value(),
+            algorithms=[settings.algorithm],
         )
         return payload
     except JWTError:

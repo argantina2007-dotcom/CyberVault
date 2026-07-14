@@ -6,6 +6,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.api.v1.auth import router as auth_router
+from app.api.v1.tools import router as tools_router
 from app.api.v1.users import router as users_router
 
 app = FastAPI(
@@ -29,6 +30,7 @@ app.add_middleware(
 
 # ضع الراوترات هنا فقط
 app.include_router(auth_router)
+app.include_router(tools_router)
 app.include_router(users_router)
 
 @app.get("/api/v1/health")

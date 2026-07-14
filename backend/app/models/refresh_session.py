@@ -1,9 +1,9 @@
-from datetime import datetime
 import uuid
 
 from sqlalchemy import Column, DateTime, ForeignKey, String
 
 from app.database import Base
+from app.core.time import utc_now
 
 
 class RefreshSession(Base):
@@ -17,4 +17,4 @@ class RefreshSession(Base):
     token_identifier_hash = Column(String(64), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)

@@ -1,10 +1,11 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.core.time import utc_now
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -16,7 +17,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(
+    expire = utc_now() + timedelta(
         minutes=settings.access_token_expire_minutes
     )
     to_encode.update({"exp": expire, "type": "access"})
@@ -33,7 +34,7 @@ def create_refresh_token(
     family_identifier: str | None = None,
 ) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    expire = utc_now() + timedelta(days=settings.refresh_token_expire_days)
     to_encode.update(
         {
             "exp": expire,

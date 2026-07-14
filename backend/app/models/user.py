@@ -1,7 +1,8 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Enum
 from app.database import Base
-from datetime import datetime
 import uuid
+
+from app.core.time import utc_now
 
 class User(Base):
     __tablename__ = "users"
@@ -15,5 +16,5 @@ class User(Base):
         default="user"
     )
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     last_login = Column(DateTime, nullable=True)

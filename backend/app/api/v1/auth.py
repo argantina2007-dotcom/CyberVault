@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 import secrets
 import uuid
 
@@ -16,6 +16,7 @@ from app.core.security import (
     hash_token_identifier,
     verify_password,
 )
+from app.core.time import utc_now
 from app.database import get_db
 from app.models.refresh_session import RefreshSession
 from app.models.user import User
@@ -57,7 +58,7 @@ def _issue_token_pair(db: Session, user: User, family_id: str | None = None) -> 
             user_id=str(user.id),
             family_id=family_id,
             token_identifier_hash=hash_token_identifier(token_identifier),
-            expires_at=datetime.utcnow()
+            expires_at=utc_now()
             + timedelta(days=settings.refresh_token_expire_days),
         )
     )
@@ -68,7 +69,7 @@ def _revoke_family(db: Session, family_id: str) -> None:
     db.query(RefreshSession).filter(
         RefreshSession.family_id == family_id,
         RefreshSession.revoked_at.is_(None),
-    ).update({RefreshSession.revoked_at: datetime.utcnow()}, synchronize_session=False)
+    ).update({RefreshSession.revoked_at: utc_now()}, synchronize_session=False)
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -84,7 +85,7 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
         username=data.username,
         email=data.email,
         hashed_password=hash_password(data.password),
-        last_login=datetime.utcnow(),
+        last_login=utc_now(),
     )
     db.add(user)
     try:
@@ -111,7 +112,7 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
             detail="Invalid credentials",
         )
 
-    user.last_login = datetime.utcnow()
+    user.last_login = utc_now()
     try:
         access_token, refresh_token = _issue_token_pair(db, user)
         db.commit()
@@ -153,12 +154,12 @@ def refresh_token(
         raise _unauthorized("Refresh token reuse detected")
 
     user = db.query(User).filter(User.id == user_id).first()
-    if user is None or not user.is_active or session.expires_at <= datetime.utcnow():
-        session.revoked_at = datetime.utcnow()
+    if user is None or not user.is_active or session.expires_at <= utc_now():
+        session.revoked_at = utc_now()
         db.commit()
         raise _unauthorized()
 
-    session.revoked_at = datetime.utcnow()
+    session.revoked_at = utc_now()
     try:
         access_token, new_refresh_token = _issue_token_pair(db, user, family_id)
         db.commit()
@@ -191,7 +192,7 @@ def logout(data: RefreshTokenRequest, db: Session = Depends(get_db)):
         raise _unauthorized()
 
     if session.revoked_at is None:
-        session.revoked_at = datetime.utcnow()
+        session.revoked_at = utc_now()
         db.commit()
 
     return {"detail": "Logged out successfully"}

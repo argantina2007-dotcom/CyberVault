@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Depends
+import base64
 
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.schemas.tools import (
+    Base64DecodeRequest,
+    Base64DecodeResponse,
+    Base64EncodeRequest,
+    Base64EncodeResponse,
     HashGeneratorRequest,
     HashGeneratorResponse,
     JwtDecoderRequest,
@@ -10,6 +15,7 @@ from app.schemas.tools import (
     PasswordGeneratorRequest,
     PasswordGeneratorResponse,
 )
+from app.tools.base64_codec import decode_text, encode_text
 from app.tools.hash_generator import generate_hash, hash_security_note
 from app.tools.jwt_decoder import parse_unverified_token, verify_token
 from app.tools.password_generator import (
@@ -126,4 +132,71 @@ def jwt_decoder(
             if verified
             else "Decoded without signature or claim verification. Do not trust these claims as authentic."
         ),
+    )
+
+
+@router.post(
+    "/base64-encode",
+    response_model=Base64EncodeResponse,
+    summary="Encode UTF-8 text as Base64",
+    description="Base64 is encoding, not encryption. Supplied text and output are not logged or stored.",
+)
+def base64_encode(
+    options: Base64EncodeRequest,
+    _: User = Depends(get_current_user),
+) -> Base64EncodeResponse:
+    encoded_text, input_byte_length, padding_removed = encode_text(
+        options.text,
+        options.url_safe,
+        options.remove_padding,
+    )
+    return Base64EncodeResponse(
+        encoded_text=encoded_text,
+        input_byte_length=input_byte_length,
+        output_length=len(encoded_text),
+        url_safe=options.url_safe,
+        padding_removed=padding_removed,
+        security_note="Base64 is encoding, not encryption.",
+    )
+
+
+@router.post(
+    "/base64-decode",
+    response_model=Base64DecodeResponse,
+    summary="Decode Base64 text",
+    description=(
+        "Decodes Base64 without executing the result. Base64 is encoding, not encryption. "
+        "Binary or text that cannot use the requested encoding is returned as Base64 bytes."
+    ),
+)
+def base64_decode(
+    options: Base64DecodeRequest,
+    _: User = Depends(get_current_user),
+) -> Base64DecodeResponse:
+    decoded_bytes = decode_text(
+        options.encoded_text,
+        options.url_safe,
+        options.strict_validation,
+    )
+    try:
+        decoded_text = decoded_bytes.decode(options.output_encoding)
+    except UnicodeDecodeError:
+        return Base64DecodeResponse(
+            decoded_text=None,
+            decoded_base64_bytes=base64.b64encode(decoded_bytes).decode("ascii"),
+            output_byte_length=len(decoded_bytes),
+            detected_encoding=None,
+            url_safe=options.url_safe,
+            validation_note=(
+                f"Decoded bytes are not valid {options.output_encoding} text; returned as Base64 bytes."
+            ),
+        )
+
+    return Base64DecodeResponse(
+        decoded_text=decoded_text,
+        decoded_base64_bytes=None,
+        output_byte_length=len(decoded_bytes),
+        detected_encoding=options.output_encoding,
+        url_safe=options.url_safe,
+        validation_note="Base64 decoded successfully. Base64 is encoding, not encryption.",
     )
